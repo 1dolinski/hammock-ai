@@ -1,8 +1,16 @@
 # local-llm-memory-tools
 
-A fully local AI chat assistant with persistent memory, vectorized document search, and paid API tool calling — all running on your machine.
+Cloud AI knows everything about you and nothing stays on your machine. Your conversations, preferences, and context live on someone else's server. Local models fix the privacy problem but create new ones — they forget everything between sessions, can't search their own history, and have no way to call external services.
 
-Built on **Qwen 3.5:9B** via Ollama, with **QMD** for local vectorized memory/search and **APINow** for x402-protocol API access.
+This project solves three problems:
+
+1. **Your context stays local.** Conversations, memories, and documents never leave your machine. Everything is stored as plain markdown files you own and can read.
+
+2. **Your AI remembers you.** Hard facts and preferences are automatically extracted from every conversation and persisted in a vectorized local index. Your zodiac sign, your job, your allergies — mentioned once, remembered forever.
+
+3. **A 9B model gets real tool access.** A deterministic router handles API discovery, parameter extraction, and execution *before* the model even sees the message. The model stays focused on conversation while the router gives it capabilities that normally require 100B+ parameter models.
+
+Built on **Qwen 3.5:9B** via Ollama, **QMD** for vectorized memory/search, and **APINow** for x402-protocol paid API access.
 
 ## Quick Start
 
