@@ -1,5 +1,7 @@
 # local-llm-memory-tools
 
+![Hero Banner](docs/hero.png)
+
 Cloud AI knows everything about you and nothing stays on your machine. Your conversations, preferences, and context live on someone else's server. Local models fix the privacy problem but create new ones — they forget everything between sessions, can't search their own history, and have no way to call external services.
 
 This project solves three problems:
