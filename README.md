@@ -31,15 +31,7 @@ ollama run qwen3.5:9b
 [QMD](https://github.com/nicholasgasior/qmd) is a local document search engine with BM25 + vector hybrid search.
 
 ```bash
-# macOS
-brew install nicholasgasior/tools/qmd
-
-# Linux (download binary)
-curl -L https://github.com/nicholasgasior/qmd/releases/latest/download/qmd-linux-amd64 -o /usr/local/bin/qmd
-chmod +x /usr/local/bin/qmd
-
-# Verify
-qmd --version
+npm install -g @tobilu/qmd
 ```
 
 ### 3. Get an APINow Private Key
