@@ -20,15 +20,19 @@ Built on **Qwen 3.5 27B** via Ollama, **QMD** for vectorized memory/search, and 
 
 ### 1. Install Ollama
 
-Download from [ollama.com](https://ollama.com), then pull the model ([hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled)):
+Download from [ollama.com](https://ollama.com), then pull the model. Ollama only accepts **GGUF** weights: use the companion repo [`...-GGUF`](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF) (the [main model card](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled) is Safetensors and will error with *"not GGUF or not compatible with llama.cpp"*).
 
 ```bash
 # Install Ollama (macOS)
 brew install ollama
 
-# Pull and start Qwen3.5-27B Distilled (~16.5GB)
-ollama run hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled
+# Pull and run (~10GB quantized; VRAM depends on quant — often ~16–17GB for Q4)
+ollama run hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
 ```
+
+**Check speed after pull:** from the repo root, `npm run benchmark` prints completion `eval_count`, wall time, and **tok/s** (uses `OLLAMA_MODEL` from `.env` if set).
+
+Smaller GPU? Use a lighter model, e.g. `OLLAMA_MODEL=qwen3.5:9b` after `ollama pull qwen3.5:9b`.
 
 ### 2. Install QMD
 
@@ -64,8 +68,8 @@ Your `.env` file should look like:
 # EVM private key for USDC payments via APINow (x402 protocol)
 PRIVATE_KEY=0xabc123...your_private_key_here
 
-# Optional: override the default model
-# OLLAMA_MODEL=hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled
+# Optional: override the default model (Ollama = GGUF repo)
+# OLLAMA_MODEL=hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
 ```
 
 Then start chatting:
@@ -170,7 +174,7 @@ Built-in todo / upcoming / done lists managed through natural language. Tasks pe
 
 ```
   Chat Assistant  |  ollama + apinow + qmd
-  model: hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled
+  model: hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
   wallet: 0x...
   qmd: chat-memory (12 docs)
   commands: /tasks  /memory  /qmd  /clear  quit

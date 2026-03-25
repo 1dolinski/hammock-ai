@@ -21,8 +21,19 @@ config();
 const VERBOSE = process.argv.includes('--verbose') || process.argv.includes('-v');
 setVerbose(VERBOSE);
 
-const MODEL = process.env.OLLAMA_MODEL || 'hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled';
+/** Ollama needs the GGUF repo; the base HF Safetensors model cannot be pulled directly. */
+const MODEL =
+  process.env.OLLAMA_MODEL ||
+  'hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF';
 const MAX_HISTORY = 50;
+
+function isModelInstalled(model: string, available: string[]): boolean {
+  const bare = model.split(':')[0];
+  return available.some((n) => {
+    const nb = n.split(':')[0];
+    return n === model || nb === bare;
+  });
+}
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
@@ -232,7 +243,7 @@ async function main() {
   try {
     const list = await ollama.list();
     const available = list.models.map((m) => m.name);
-    if (!available.some((n) => n.startsWith(MODEL.split(':')[0]))) {
+    if (!isModelInstalled(MODEL, available)) {
       console.log(
         `Model "${MODEL}" not found locally. Available: ${available.join(', ')}`
       );
