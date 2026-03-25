@@ -81,6 +81,26 @@ npm start
 npm run start:verbose
 ```
 
+### Troubleshooting: `unable to load model` + blob `sha256-...`
+
+Ollama’s manifest can point at a **bad or truncated** weights blob (interrupted pull, disk glitch) even after `pull` says success. Or your **Ollama build is too old** for that GGUF.
+
+1. **Quit Ollama** (menu bar → Quit), start it again.
+2. **Remove model + the exact blob from the error**, then pull again:
+
+```bash
+ollama rm hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
+rm -f ~/.ollama/models/blobs/sha256-a15622267316636d22575f8ab25a61347eab59def966f257f572914812348c61
+ollama pull hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
+```
+
+3. **Upgrade Ollama**: `brew upgrade ollama` (or reinstall from [ollama.com](https://ollama.com)).
+4. **Same daemon for pull and benchmark** — if you use Docker or a remote `OLLAMA_HOST`, blobs live elsewhere; pull where the API points.
+5. **Verify the blob size** — that file should be on the order of **~10GB**. If it’s tiny, it’s incomplete; delete it and re-pull.
+6. **Fallback**: `OLLAMA_MODEL=qwen3.5:9b npm run benchmark` after `ollama pull qwen3.5:9b`.
+
+`npm run benchmark` prints these steps automatically when it sees that 500 error.
+
 ---
 
 ## Why Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled?

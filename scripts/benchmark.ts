@@ -8,10 +8,40 @@ import { config } from 'dotenv';
 config();
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-const MODEL =
+const MODEL_REQUESTED =
   process.env.OLLAMA_MODEL ||
   'hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF';
 const NUM_PREDICT = Math.min(512, Math.max(16, Number(process.env.BENCH_TOKENS || 80)));
+
+/** Use the exact tag Ollama registered (e.g. ...:latest) to avoid resolution quirks. */
+function resolveInstalledModel(requested: string, installed: string[]): string {
+  if (installed.includes(requested)) return requested;
+  const withLatest = `${requested}:latest`;
+  if (installed.includes(withLatest)) return withLatest;
+  const bare = requested.split(':')[0];
+  const matches = installed.filter((n) => n.split(':')[0] === bare);
+  if (matches.length === 0) return requested;
+  return matches.find((n) => n.endsWith(':latest')) ?? matches[0];
+}
+
+function printLoadFailureHelp(body: string, installedName: string): void {
+  const m = body.match(/sha256-([a-f0-9]{64})/);
+  const blob = m ? `sha256-${m[1]}` : null;
+  const pullName = installedName.split(':')[0];
+  console.error('\n--- Fix: "unable to load model" (corrupt blob or old Ollama) ---');
+  console.error('1. Quit Ollama completely (menu bar app → Quit), then start it again.');
+  console.error('2. Remove the model and the bad blob, then re-pull:');
+  console.error(`   ollama rm ${JSON.stringify(installedName)}`);
+  if (blob) {
+    console.error(`   rm -f ~/.ollama/models/blobs/${blob}`);
+  } else {
+    console.error('   rm -f ~/.ollama/models/blobs/sha256-<hash-from-error-above>');
+  }
+  console.error(`   ollama pull ${JSON.stringify(pullName)}`);
+  console.error('3. Upgrade Ollama: brew upgrade ollama  (needs recent llama.cpp for some GGUFs)');
+  console.error('4. Same Ollama for pull + benchmark (not Docker vs menu-bar app).');
+  console.error('5. Fallback: OLLAMA_MODEL=qwen3.5:9b npm run benchmark\n');
+}
 
 async function main(): Promise<void> {
   const tagsRes = await fetch(`${OLLAMA_HOST}/api/tags`);
@@ -21,13 +51,18 @@ async function main(): Promise<void> {
   }
   const tags = (await tagsRes.json()) as { models?: { name: string }[] };
   const names = (tags.models || []).map((m) => m.name);
-  const bare = MODEL.split(':')[0];
-  const installed = names.some((n) => n.split(':')[0] === bare || n === MODEL);
+  const bare = MODEL_REQUESTED.split(':')[0];
+  const installed = names.some((n) => n.split(':')[0] === bare || n === MODEL_REQUESTED);
   if (!installed) {
-    console.error(`Model not found locally: ${MODEL}`);
+    console.error(`Model not found locally: ${MODEL_REQUESTED}`);
     console.error('Installed:', names.length ? names.join(', ') : '(none)');
-    console.error(`Run: ollama pull ${MODEL}`);
+    console.error(`Run: ollama pull ${MODEL_REQUESTED}`);
     process.exit(1);
+  }
+
+  const MODEL = resolveInstalledModel(MODEL_REQUESTED, names);
+  if (MODEL !== MODEL_REQUESTED) {
+    console.log('resolved model tag:', MODEL, '(from', MODEL_REQUESTED + ')');
   }
 
   const t0 = performance.now();
@@ -46,6 +81,9 @@ async function main(): Promise<void> {
   if (!genRes.ok) {
     const t = await genRes.text();
     console.error('Generate failed', genRes.status, t);
+    if (genRes.status === 500 && t.includes('unable to load model')) {
+      printLoadFailureHelp(t, MODEL);
+    }
     process.exit(1);
   }
 
