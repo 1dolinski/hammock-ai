@@ -24,7 +24,7 @@ cp .env.example .env
 npm start
 ```
 
-QMD is bundled (`@tobilu/qmd`). Optional: `npm install -g @tobilu/qmd`
+QMD (`@tobilu/qmd`) is installed by `npm install` and runs automatically — no global install needed.
 
 ---
 
@@ -33,3 +33,40 @@ QMD is bundled (`@tobilu/qmd`). Optional: `npm install -g @tobilu/qmd`
 **Use:** `npm start` · `/tasks` `/memory` `/qmd` `/clear` · `quit` · `npm run start:verbose`
 
 **More:** [ABOUT.md](ABOUT.md)
+
+---
+
+## Advanced (optional)
+
+All advanced features are opt-in. Base `npm start` works exactly as before.
+
+### Cron jobs
+
+Schedule recurring prompts from chat:
+
+> "every morning at 8am, get my horoscope"
+
+The model calls `add_cron("0 8 * * *", "get my horoscope")`. Jobs persist in SQLite (`data/app.sqlite`) and resume on restart.
+
+Tools the model can use: `add_cron` `list_crons` `remove_cron` `toggle_cron`
+
+### SQLite database
+
+`npm install` sets up `data/app.sqlite` automatically (via `better-sqlite3`, already bundled). The model can run read-only SQL with `query_db`:
+
+> "show me all my cron jobs that ran today"
+
+### Telegram bot
+
+Run the assistant as a Telegram bot instead of CLI:
+
+1. Talk to [@BotFather](https://t.me/BotFather) and create a bot
+2. Add to `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+```
+
+3. `npm start` -- detects the token and starts polling Telegram instead of the REPL
+
+Same tools, memory, and cron -- just a different frontend.

@@ -11,6 +11,76 @@ import { vlog } from './log.js';
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
+/** Substrings that indicate the user wants an external API call — not product names, docs, or meta questions. */
+const API_INTENT_PHRASES = [
+  'get my',
+  'tell me my',
+  'use the',
+  'call the',
+  'call an',
+  'call a',
+  'run the',
+  'invoke',
+  'fetch ',
+  ' fetch',
+  'horoscope',
+  'translate',
+  'summarize',
+  'weather like',
+  'weather today',
+  'weather tomorrow',
+  'weather for',
+  'weather in',
+  'weather forecast',
+  'weather api',
+  'current weather',
+  "what's the weather",
+  'what is the weather',
+  'forecast for',
+  'stock price',
+  'stock market',
+  'bitcoin price',
+  'bitcoin',
+  'api request',
+  'external api',
+  'rest api',
+  'lookup ',
+  ' lookup',
+  'query the',
+  'endpoint ',
+  ' endpoint',
+];
+
+/** Standalone tokens (after stripping punctuation). Avoid bare "api" — it matches inside "apinow". */
+const API_INTENT_TOKENS = new Set([
+  'fetch',
+  'invoke',
+  'endpoint',
+  'request',
+  'lookup',
+  'query',
+  'translate',
+  'summarize',
+  'horoscope',
+  'bitcoin',
+]);
+
+function normalizeToken(w: string): string {
+  return w.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
+}
+
+export function looksLikeApiIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  for (const p of API_INTENT_PHRASES) {
+    if (lower.includes(p)) return true;
+  }
+  const tokens = lower.split(/\s+/).map(normalizeToken).filter(Boolean);
+  for (const t of tokens) {
+    if (API_INTENT_TOKENS.has(t)) return true;
+  }
+  return false;
+}
+
 export interface RouteResult {
   namespace: string;
   endpoint: string;
@@ -83,6 +153,11 @@ export async function tryRoute(
   vlog('router', 'known tools:', state.knownTools.length);
   vlog('router', 'memories:', state.memories.length);
 
+  if (!looksLikeApiIntent(userMessage)) {
+    vlog('router', 'no API intent — skip deterministic APINow routing');
+    return null;
+  }
+
   // 1. Known tool path — resolve params from memory, no model call
   const known = findMatchingTool(state, userMessage);
   if (known) {
@@ -123,15 +198,26 @@ export async function tryRoute(
     }
   }
 
-  // 2. Does this look like an API request?
+  // 2. Intent already verified — search APINow for first-time discovery (optional extra hints for logs)
   const lower = userMessage.toLowerCase();
-  const actionSignals = ['apinow', 'api', 'endpoint', 'call', 'fetch', 'get my', 'tell me my', 'use the', 'horoscope', 'translate', 'generate', 'summarize'];
-  const matchedSignals = actionSignals.filter((s) => lower.includes(s));
-  if (!matchedSignals.length) {
-    vlog('router', 'no action signals found, skipping search');
-    return null;
-  }
-  vlog('router', 'action signals:', matchedSignals);
+  const searchHints = [
+    'endpoint',
+    'fetch',
+    'get my',
+    'tell me my',
+    'use the',
+    'horoscope',
+    'translate',
+    'summarize',
+    'invoke',
+    'lookup',
+    'weather',
+    'forecast',
+    'bitcoin',
+    'stock',
+  ];
+  const matchedHints = searchHints.filter((s) => lower.includes(s));
+  vlog('router', 'search hints:', matchedHints);
 
   // 3. Search APINow for matching tools
   console.log(dim(`  [router] searching apinow...`));

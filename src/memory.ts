@@ -165,6 +165,74 @@ export function pushHistory(state: AppState, role: string, content: string): voi
   writeConversationTurn(role, content);
 }
 
+/** Never use for router keyword matching — they appear in normal chat and meta questions. */
+const ROUTER_KEYWORD_NOISE = new Set([
+  'apinow',
+  'endpoint',
+  'namespace',
+  'gg402',
+  'www',
+  'http',
+  'https',
+  'body',
+  'json',
+  'post',
+  'method',
+  'api',
+  'fetch',
+  'call',
+  'about',
+  'tell',
+  'what',
+  'with',
+  'from',
+  'this',
+  'that',
+  'your',
+  'have',
+  'been',
+  'will',
+  'would',
+  'could',
+  'should',
+  'their',
+  'there',
+  'where',
+  'when',
+  'which',
+  'while',
+  'into',
+  'then',
+  'than',
+  'them',
+  'they',
+  'these',
+  'those',
+  'some',
+  'more',
+  'most',
+  'other',
+  'using',
+  'make',
+  'like',
+  'just',
+  'also',
+  'provide',
+  'list',
+  'give',
+  'show',
+  'describe',
+  'explain',
+  'information',
+]);
+
+function filterRouterKeywords(keywords: string[]): string[] {
+  return keywords.filter((k) => {
+    const lower = k.toLowerCase();
+    return lower.length > 2 && !ROUTER_KEYWORD_NOISE.has(lower);
+  });
+}
+
 export function registerTool(
   state: AppState,
   namespace: string,
@@ -173,19 +241,20 @@ export function registerTool(
   keywords: string[],
   body: Record<string, any>
 ): void {
+  const cleaned = filterRouterKeywords(keywords);
   const existing = state.knownTools.find(
     (t) => t.namespace === namespace && t.endpoint === endpoint
   );
   if (existing) {
     existing.useCount++;
     existing.lastBody = body;
-    existing.keywords = [...new Set([...existing.keywords, ...keywords])];
+    existing.keywords = [...new Set([...existing.keywords, ...cleaned])];
   } else {
     state.knownTools.push({
       namespace,
       endpoint,
       description,
-      keywords,
+      keywords: cleaned,
       lastBody: body,
       useCount: 1,
     });
@@ -193,11 +262,19 @@ export function registerTool(
   saveState(state);
 }
 
+function normalizeWord(w: string): string {
+  return w.toLowerCase().replace(/^[^\w]+|[^\w]+$/g, '');
+}
+
 export function findMatchingTool(
   state: AppState,
   message: string
 ): KnownTool | null {
-  const words = message.toLowerCase().split(/\s+/);
+  const words = message
+    .toLowerCase()
+    .split(/\s+/)
+    .map(normalizeWord)
+    .filter(Boolean);
   let best: KnownTool | null = null;
   let bestScore = 0;
 
@@ -205,9 +282,14 @@ export function findMatchingTool(
     let score = 0;
     for (const kw of tool.keywords) {
       const kwLower = kw.toLowerCase();
-      if (words.some((w) => w.includes(kwLower) || kwLower.includes(w))) {
-        score++;
-      }
+      if (ROUTER_KEYWORD_NOISE.has(kwLower)) continue;
+      if (kwLower.length < 3) continue;
+      const hit = words.some((w) => {
+        if (w === kwLower) return true;
+        if (kwLower.length >= 4 && (w.includes(kwLower) || kwLower.includes(w))) return true;
+        return false;
+      });
+      if (hit) score++;
     }
     if (score > bestScore) {
       bestScore = score;

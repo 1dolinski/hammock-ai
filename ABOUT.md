@@ -135,11 +135,14 @@ Browse models on [ollama.com](https://ollama.com).
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Chat loop, streaming, system prompt, CLI commands |
+| `src/index.ts` | Chat loop, streaming, system prompt, CLI/Telegram entry |
 | `src/router.ts` | Deterministic pre-LLM API routing |
 | `src/extractor.ts` | Background fact extraction |
 | `src/memory.ts` | Persistent state, markdown for QMD |
-| `src/tools.ts` | Ollama tools + APINow + QMD |
+| `src/tools.ts` | Ollama tools + APINow + QMD + cron + DB |
+| `src/db.ts` | SQLite database (better-sqlite3), schema init |
+| `src/cron.ts` | Cron job scheduler (node-cron), DB-backed |
+| `src/telegram.ts` | Telegram bot frontend (grammy) |
 | `src/log.ts` | Verbose logging |
 
 ---
@@ -216,6 +219,71 @@ Example API: [gg402/horoscope](https://www.apinow.fun/try/gg402/horoscope?tab=tr
 ## Verbose mode
 
 `npm run start:verbose` — token counts, router, APINow timing, extractor, timestamps.
+
+---
+
+## Advanced features
+
+All optional and opt-in. The base `npm start` CLI experience is unchanged if you don't configure them.
+
+### SQLite database (`src/db.ts`)
+
+An application SQLite database at `data/app.sqlite` is created automatically on startup via `better-sqlite3` (already installed as a transitive dependency of `@tobilu/qmd`). This is separate from QMD's internal search index.
+
+**Tables:**
+
+| Table | Purpose |
+|-------|---------|
+| `cron_jobs` | Scheduled prompts (expression, prompt, description, enabled, last_run, created_at) |
+| `telegram_state` | Telegram chat session tracking (chat_id, last_message_id, created_at) |
+
+The model can query this database with the `query_db` tool (read-only `SELECT` only).
+
+### Cron jobs (`src/cron.ts`)
+
+User-defined scheduled prompts, stored in `cron_jobs` and executed by `node-cron`.
+
+**How it works:**
+
+1. User says something like "every morning at 8am, get my horoscope"
+2. The model calls `add_cron(expression="0 8 * * *", prompt="get my horoscope", description="morning horoscope")`
+3. The job is saved to SQLite and immediately scheduled
+4. On each tick, the stored prompt is sent through `chat()` — output goes to the CLI or Telegram
+5. Jobs persist across restarts; `startCronJobs()` loads and schedules all enabled jobs on boot
+
+**Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `add_cron` | Create a new cron job (expression + prompt + optional description) |
+| `list_crons` | Show all cron jobs with status and last run |
+| `remove_cron` | Delete a cron job by ID |
+| `toggle_cron` | Enable/disable a cron job by ID |
+
+Cron expressions follow standard syntax: `* * * * *` (minute hour day month weekday). Validated by `node-cron` before saving.
+
+### Telegram bot (`src/telegram.ts`)
+
+Run the assistant as a Telegram bot instead of the CLI REPL. Uses [grammY](https://grammy.dev/) for long-polling.
+
+**Setup:**
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) on Telegram
+2. Add the token to `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+```
+
+3. Run `npm start` — detects the token and starts Telegram polling instead of readline
+
+**Behavior:**
+
+- Each Telegram message is routed through the same `chat()` function
+- Tool calling, memory, QMD, APINow, cron — all work identically
+- Telegram slash commands: `/tasks`, `/memory`, `/qmd`, `/clear`
+- Chat state is tracked in `telegram_state` table
+- If `TELEGRAM_BOT_TOKEN` is not set, Telegram code is never loaded
 
 ---
 

@@ -14,10 +14,15 @@
     "@tobilu/qmd": "^2.0.1",
     "apinow-sdk": "^0.24.0",
     "dotenv": "^17.4.0",
+    "ethers": "^6.16.0",
+    "grammy": "^1.41.1",
+    "node-cron": "^4.2.1",
     "ollama": "^0.6.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.2",
+    "@types/node-cron": "^3.0.11",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   }

@@ -14,6 +14,9 @@ import { tools, handleToolCall, qmd } from './tools.js';
 import { tryRoute } from './router.js';
 import { setVerbose, vlog } from './log.js';
 import { extractFactsInBackground, waitForExtractor, bootstrapMemories } from './extractor.js';
+import { initDb, closeDb } from './db.js';
+import { setCronChatFn, startCronJobs, stopAllCronJobs } from './cron.js';
+import { startTelegramBot, setTelegramChatFn } from './telegram.js';
 import type { Message } from 'ollama';
 
 config();
@@ -23,6 +26,7 @@ setVerbose(VERBOSE);
 
 const MODEL = process.env.OLLAMA_MODEL || 'gemma4';
 const MAX_HISTORY = 50;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 
 function isModelInstalled(model: string, available: string[]): boolean {
   const bare = model.split(':')[0];
@@ -81,6 +85,13 @@ You manage the user's local knowledge base via QMD:
 5. When user mentions new docs/dirs: proactively offer to index them
 6. Run qmd_update when user mentions changed files
 
+## Cron Jobs
+You can schedule recurring tasks with add_cron. Use list_crons to see scheduled jobs.
+Example: user says "remind me to check the weather every morning" → add_cron(expression="0 8 * * *", prompt="what's the weather today", description="morning weather check")
+
+## Database
+You can query the app database with query_db (read-only SQL). Tables: cron_jobs, telegram_state.
+
 ## Task Management
 - Proactively manage tasks: add new ones, move items between todo/upcoming/done as work progresses.
 - When a task is completed, move it to done. When planning future work, use upcoming.
@@ -105,7 +116,14 @@ if (state.history.length) {
   }
 }
 
-async function chat(userMessage: string): Promise<void> {
+/**
+ * Core chat function. Used by CLI REPL, Telegram, and cron ticks.
+ * onChunk is called with incremental text (for streaming to Telegram or stdout).
+ */
+export async function chat(
+  userMessage: string,
+  onChunk?: (text: string) => void,
+): Promise<string> {
   const chatT0 = Date.now();
   vlog('chat', 'user input:', truncate(userMessage, 200));
   vlog('chat', 'conversation history:', conversationMessages.length, 'messages');
@@ -118,7 +136,6 @@ async function chat(userMessage: string): Promise<void> {
     conversationMessages.shift();
   }
 
-  // === TOOL ROUTER: runs before the model ===
   const routeT0 = Date.now();
   const routed = await tryRoute(userMessage, state, apinow, MODEL, rlAsk);
   if (routed) {
@@ -143,14 +160,16 @@ async function chat(userMessage: string): Promise<void> {
   const totalChars = messages.reduce((n, m) => n + (m.content?.length || 0), 0);
   vlog('chat', 'total context:', messages.length, 'messages,', totalChars, 'chars');
 
-  // === MODEL: generates response (with tool calling for non-API tools) ===
   let iterations = 0;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  let fullResponse = '';
 
   while (iterations++ < 15) {
     const t0 = Date.now();
-    process.stdout.write(dim(`  [${iterations}/15] generating...`));
+    if (!onChunk) {
+      process.stdout.write(dim(`  [${iterations}/15] generating...`));
+    }
     vlog('model', `iteration ${iterations}, sending ${messages.length} messages`);
 
     const stream = await ollama.chat({ model: MODEL, messages, tools, stream: true });
@@ -169,10 +188,16 @@ async function chat(userMessage: string): Promise<void> {
       }
       if (part.message.content) {
         if (!started) {
-          process.stdout.write(`\r                              \r\n${cyan('assistant>')} `);
+          if (!onChunk) {
+            process.stdout.write(`\r                              \r\n${cyan('assistant>')} `);
+          }
           started = true;
         }
-        process.stdout.write(part.message.content);
+        if (onChunk) {
+          onChunk(part.message.content);
+        } else {
+          process.stdout.write(part.message.content);
+        }
         content += part.message.content;
       }
       if ((part as any).prompt_eval_count) promptTokens = (part as any).prompt_eval_count;
@@ -186,7 +211,7 @@ async function chat(userMessage: string): Promise<void> {
     vlog('model', `stream done: ${partCount} parts, ${elapsed}s`);
     vlog('model', `tokens: prompt=${promptTokens} completion=${completionTokens}`);
 
-    if (!started) {
+    if (!started && !onChunk) {
       process.stdout.write(`\r                              \r`);
     }
 
@@ -197,13 +222,17 @@ async function chat(userMessage: string): Promise<void> {
       for (const tc of toolCalls) {
         const fnName = tc.function.name;
         const fnArgs = tc.function.arguments;
-        console.log(dim(`  [${fnName}] ${truncate(JSON.stringify(fnArgs), 80)} (${elapsed}s)`));
+        if (!onChunk) {
+          console.log(dim(`  [${fnName}] ${truncate(JSON.stringify(fnArgs), 80)} (${elapsed}s)`));
+        }
         vlog('tool', `${fnName} args:`, fnArgs);
 
         const callT0 = Date.now();
         const result = await handleToolCall(fnName, fnArgs, state, apinow);
         const callElapsed = ((Date.now() - callT0) / 1000).toFixed(1);
-        console.log(dim(`  -> ${truncate(result, 150)} (${callElapsed}s)`));
+        if (!onChunk) {
+          console.log(dim(`  -> ${truncate(result, 150)} (${callElapsed}s)`));
+        }
         vlog('tool', `${fnName} result (${callElapsed}s):`, result.length > 500 ? result.slice(0, 500) + '...' : result);
 
         messages.push({ role: 'tool', content: result });
@@ -215,25 +244,31 @@ async function chat(userMessage: string): Promise<void> {
       continue;
     }
 
-    if (started) {
-      console.log(dim(` (${elapsed}s)`) + '\n');
-    } else if (content) {
-      console.log(`\n${cyan('assistant>')} ${content}` + dim(` (${elapsed}s)`) + '\n');
+    if (!onChunk) {
+      if (started) {
+        console.log(dim(` (${elapsed}s)`) + '\n');
+      } else if (content) {
+        console.log(`\n${cyan('assistant>')} ${content}` + dim(` (${elapsed}s)`) + '\n');
+      }
     }
 
     vlog('chat', `total: ${iterations} iterations, prompt=${totalPromptTokens} completion=${totalCompletionTokens} tokens, ${((Date.now() - chatT0) / 1000).toFixed(1)}s`);
 
     conversationMessages.push({ role: 'assistant', content });
     pushHistory(state, 'assistant', content);
+    fullResponse = content;
 
     extractFactsInBackground(userMessage, content, state, MODEL);
 
     try { qmd('update', 10_000); } catch {}
-    return;
+    return fullResponse;
   }
 
   vlog('chat', 'max iterations reached');
-  console.log(dim('  (max tool iterations reached)\n'));
+  if (!onChunk) {
+    console.log(dim('  (max tool iterations reached)\n'));
+  }
+  return fullResponse;
 }
 
 async function main() {
@@ -255,6 +290,12 @@ async function main() {
     process.exit(1);
   }
 
+  // --- DB + Cron ---
+  initDb();
+  setCronChatFn(async (prompt) => { await chat(prompt); });
+  startCronJobs();
+
+  // --- QMD ---
   process.stdout.write(dim('  setting up qmd...'));
   const collectionList = qmd('collection list');
   if (!collectionList.includes('chat-memory')) {
@@ -279,63 +320,77 @@ async function main() {
 
   bootstrapMemories(state, MODEL);
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  // --- Telegram or CLI ---
+  if (TELEGRAM_TOKEN) {
+    console.log(dim('  mode: Telegram bot'));
+    setTelegramChatFn(async (message, reply) => {
+      const response = await chat(message, reply);
+      if (!response) reply('(no response)');
+    });
+    await startTelegramBot(TELEGRAM_TOKEN);
+  } else {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
 
-  rl.on('close', () => {
-    saveState(state);
-    console.log('\nBye!');
-    process.exit(0);
-  });
-
-  rlAsk = (prompt: string): Promise<string> =>
-    new Promise((resolve) => rl.question(prompt, resolve));
-
-  const ask = (): Promise<string> => rlAsk!('you> ');
-
-  while (true) {
-    const input = await ask();
-    const trimmed = input.trim();
-    if (!trimmed) continue;
-
-    if (trimmed === 'quit' || trimmed === 'exit') {
-      await waitForExtractor();
+    rl.on('close', () => {
+      stopAllCronJobs();
+      closeDb();
       saveState(state);
-      console.log('Bye!');
-      rl.close();
+      console.log('\nBye!');
       process.exit(0);
-    }
+    });
 
-    if (trimmed === '/tasks') {
-      console.log('\n' + formatTasks(state) + '\n');
-      continue;
-    }
+    rlAsk = (prompt: string): Promise<string> =>
+      new Promise((resolve) => rl.question(prompt, resolve));
 
-    if (trimmed === '/memory') {
-      console.log('\n' + formatMemories(state) + '\n');
-      continue;
-    }
+    const ask = (): Promise<string> => rlAsk!('you> ');
 
-    if (trimmed === '/qmd') {
-      refreshQmdStatus();
-      console.log('\n' + qmdStatus);
-      continue;
-    }
+    while (true) {
+      const input = await ask();
+      const trimmed = input.trim();
+      if (!trimmed) continue;
 
-    if (trimmed === '/clear') {
-      conversationMessages.length = 0;
-      state.history = [];
-      saveState(state);
-      console.log(dim('  conversation cleared\n'));
-      continue;
-    }
+      if (trimmed === 'quit' || trimmed === 'exit') {
+        await waitForExtractor();
+        stopAllCronJobs();
+        closeDb();
+        saveState(state);
+        console.log('Bye!');
+        rl.close();
+        process.exit(0);
+      }
 
-    try {
-      await chat(trimmed);
-    } catch (err: any) {
-      console.error(`\x1b[31mError: ${err.message}\x1b[0m`);
+      if (trimmed === '/tasks') {
+        console.log('\n' + formatTasks(state) + '\n');
+        continue;
+      }
+
+      if (trimmed === '/memory') {
+        console.log('\n' + formatMemories(state) + '\n');
+        continue;
+      }
+
+      if (trimmed === '/qmd') {
+        refreshQmdStatus();
+        console.log('\n' + qmdStatus);
+        continue;
+      }
+
+      if (trimmed === '/clear') {
+        conversationMessages.length = 0;
+        state.history = [];
+        saveState(state);
+        console.log(dim('  conversation cleared\n'));
+        continue;
+      }
+
+      try {
+        await chat(trimmed);
+      } catch (err: any) {
+        console.error(`\x1b[31mError: ${err.message}\x1b[0m`);
+      }
     }
   }
 }

@@ -22,6 +22,8 @@ import {
   addMemory,
   formatTasks,
 } from './memory.js';
+import { getDb } from './db.js';
+import { addCronJob, listCronJobs, removeCronJob, toggleCronJob } from './cron.js';
 
 export function qmd(cmd: string, timeout = 30_000): string {
   try {
@@ -370,6 +372,86 @@ export const tools: Tool[] = [
       parameters: { type: 'object', properties: {} },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'add_cron',
+      description:
+        'Schedule a recurring task. The prompt runs automatically on the cron schedule. Example: expression="0 8 * * *" (daily 8am), prompt="get my horoscope"',
+      parameters: {
+        type: 'object',
+        properties: {
+          expression: {
+            type: 'string',
+            description: 'Cron expression (e.g. "0 8 * * *" for daily at 8am, "*/30 * * * *" for every 30 min)',
+          },
+          prompt: {
+            type: 'string',
+            description: 'The message/prompt to run on each tick',
+          },
+          description: {
+            type: 'string',
+            description: 'Short label for this job (optional)',
+          },
+        },
+        required: ['expression', 'prompt'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_crons',
+      description: 'List all scheduled cron jobs with their status, schedule, and last run time',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_cron',
+      description: 'Delete a cron job by its ID',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', description: 'Cron job ID' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'toggle_cron',
+      description: 'Enable or disable a cron job by its ID (toggles current state)',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'number', description: 'Cron job ID' },
+        },
+        required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'query_db',
+      description:
+        'Run a read-only SQL query against the app database (SQLite). Only SELECT is allowed. Tables: cron_jobs (id, expression, prompt, description, enabled, last_run, created_at), telegram_state (chat_id, last_message_id, created_at).',
+      parameters: {
+        type: 'object',
+        properties: {
+          sql: {
+            type: 'string',
+            description: 'SQL SELECT query',
+          },
+        },
+        required: ['sql'],
+      },
+    },
+  },
 ];
 
 export async function handleToolCall(
@@ -467,6 +549,36 @@ export async function handleToolCall(
       }
       case 'qmd_context_list': {
         return qmd('context list');
+      }
+      case 'add_cron': {
+        const job = addCronJob(args.expression, args.prompt, args.description || '');
+        return JSON.stringify({ ok: true, job, message: `Cron job #${job.id} created: "${job.expression}"` });
+      }
+      case 'list_crons': {
+        const jobs = listCronJobs();
+        if (jobs.length === 0) return JSON.stringify({ jobs: [], message: 'No cron jobs scheduled' });
+        return JSON.stringify({ jobs });
+      }
+      case 'remove_cron': {
+        const removed = removeCronJob(args.id);
+        return JSON.stringify({ ok: removed, message: removed ? `Cron job #${args.id} removed` : `Cron job #${args.id} not found` });
+      }
+      case 'toggle_cron': {
+        const job = toggleCronJob(args.id);
+        if (!job) return JSON.stringify({ ok: false, message: `Cron job #${args.id} not found` });
+        return JSON.stringify({ ok: true, job, message: `Cron job #${args.id} is now ${job.enabled ? 'enabled' : 'disabled'}` });
+      }
+      case 'query_db': {
+        const sql = (args.sql as string).trim();
+        if (!/^\s*SELECT\b/i.test(sql)) {
+          return JSON.stringify({ error: 'Only SELECT queries are allowed' });
+        }
+        try {
+          const rows = getDb().prepare(sql).all();
+          return JSON.stringify({ rows, count: rows.length });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message });
+        }
       }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
