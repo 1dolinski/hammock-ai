@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tobilu/qmd": "^2.0.1",
+    "agentmail": "^0.4.15",
     "apinow-sdk": "^0.24.0",
     "dotenv": "^17.4.0",
     "ethers": "^6.16.0",

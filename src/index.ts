@@ -93,6 +93,11 @@ Example: user says "remind me to check the weather every morning" → add_cron(e
 ## Database
 You can query the app database with query_db (read-only SQL). Tables: cron_jobs, telegram_state.
 
+## AgentMail (agent inboxes — https://docs.agentmail.to/)
+Requires AGENTMAIL_API_KEY. Set AGENTMAIL_INBOX_ID to avoid repeating inbox_id on every call.
+Advanced tools: list/create inboxes; send (HTML, CC/BCC, attachments as base64 or URL); list/get messages; reply, reply_all, forward; label updates; threads (org-wide or per-inbox list/get, label updates, delete); webhooks (create with event types, list, get secret for Svix verification, delete); attachment download URLs.
+For incoming mail automation, register webhooks (message.received) and fetch full bodies via get_message if the webhook payload omits large text/html.
+
 ## Task Management
 - Proactively manage tasks: add new ones, move items between todo/upcoming/done as work progresses.
 - When a task is completed, move it to done. When planning future work, use upcoming.
@@ -315,6 +320,9 @@ async function main() {
   console.log(dim(`  model: ${MODEL}`));
   console.log(dim(`  wallet: ${apinow.wallet}`));
   console.log(dim(`  qmd: chat-memory (${docCount} docs)`));
+  if (process.env.AGENTMAIL_API_KEY) {
+    console.log(dim('  agentmail: enabled (set AGENTMAIL_INBOX_ID to default inbox)'));
+  }
   if (VERBOSE) console.log(dim('  verbose: ON'));
   console.log(dim('  commands: /tasks  /memory  /qmd  /clear  quit'));
   console.log('');

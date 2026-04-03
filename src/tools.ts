@@ -24,6 +24,7 @@ import {
 } from './memory.js';
 import { getDb } from './db.js';
 import { addCronJob, listCronJobs, removeCronJob, toggleCronJob } from './cron.js';
+import { agentmailTools, handleAgentmailTool } from './agentmail.js';
 
 export function qmd(cmd: string, timeout = 30_000): string {
   try {
@@ -452,6 +453,7 @@ export const tools: Tool[] = [
       },
     },
   },
+  ...agentmailTools,
 ];
 
 export async function handleToolCall(
@@ -580,8 +582,12 @@ export async function handleToolCall(
           return JSON.stringify({ error: err.message });
         }
       }
-      default:
+      default: {
+        if (name.startsWith('agentmail_')) {
+          return handleAgentmailTool(name, args);
+        }
         return JSON.stringify({ error: `Unknown tool: ${name}` });
+      }
     }
   } catch (err: any) {
     return JSON.stringify({ error: err.message || String(err) });
