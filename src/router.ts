@@ -81,6 +81,66 @@ export function looksLikeApiIntent(message: string): boolean {
   return false;
 }
 
+const INTENT_JSON_PROMPT = `You route user messages for a chat app that can call EXTERNAL HTTP APIs (APINow: live data, horoscope, weather, translation, crypto prices, etc.).
+
+Decide ONLY whether the user is asking you to FETCH or INVOKE remote API data right now (not Q&A from your own knowledge).
+
+Answer true ONLY when they clearly want live/remote data or an API call (e.g. "get my horoscope", "weather in NYC", "translate this to Spanish", "BTC price").
+
+Answer false for: explaining concepts, listing product names (Gemma, APINow, QMD), how things work, coding help, memory/tasks, general chat, definitions, meta questions.
+
+Return ONLY valid JSON: {"invoke_external_api": true or false}`;
+
+function parseInvokeIntentJson(raw: string): boolean | null {
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof j.invoke_external_api === 'boolean') return j.invoke_external_api;
+    if (typeof j.apinow === 'boolean') return j.apinow;
+    if (typeof j.route_apinow === 'boolean') return j.route_apinow;
+    const intent = j.intent;
+    if (intent === 'api' || intent === 'external' || intent === 'invoke') return true;
+    if (intent === 'chat' || intent === 'none' || intent === 'explain') return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the local LLM (default gemma4) whether deterministic APINow routing should run.
+ * Returns null if the call failed — caller should fall back to looksLikeApiIntent().
+ */
+export async function llmWantsApinowRoute(
+  userMessage: string,
+  intentModel: string
+): Promise<boolean | null> {
+  const t0 = Date.now();
+  try {
+    const response = await ollama.chat({
+      model: intentModel,
+      messages: [{ role: 'user', content: `${INTENT_JSON_PROMPT}\n\nUser message:\n"""${userMessage.slice(0, 4000)}"""` }],
+      format: 'json',
+      options: { temperature: 0, num_predict: 80 },
+    });
+    const raw = response.message.content?.trim() || '';
+    const parsed = parseInvokeIntentJson(raw);
+    vlog('router', 'LLM intent raw:', raw);
+    vlog('router', 'LLM intent parsed:', parsed, `(${(Date.now() - t0)}ms)`);
+    return parsed;
+  } catch (e: any) {
+    vlog('router', 'LLM intent error:', e.message);
+    return null;
+  }
+}
+
+function intentModelName(): string {
+  return process.env.ROUTER_INTENT_MODEL || process.env.OLLAMA_MODEL || 'gemma4';
+}
+
+function useLlmIntentGate(): boolean {
+  return process.env.ROUTER_DISABLE_LLM_INTENT !== '1';
+}
+
 export interface RouteResult {
   namespace: string;
   endpoint: string;
@@ -153,8 +213,24 @@ export async function tryRoute(
   vlog('router', 'known tools:', state.knownTools.length);
   vlog('router', 'memories:', state.memories.length);
 
-  if (!looksLikeApiIntent(userMessage)) {
-    vlog('router', 'no API intent — skip deterministic APINow routing');
+  let allowApinow = false;
+  if (useLlmIntentGate()) {
+    const im = intentModelName();
+    const llmIntent = await llmWantsApinowRoute(userMessage, im);
+    if (llmIntent === null) {
+      allowApinow = looksLikeApiIntent(userMessage);
+      vlog('router', 'LLM intent unavailable, heuristic:', allowApinow);
+    } else {
+      allowApinow = llmIntent;
+      console.log(dim(`  [router] intent (LLM ${im}): ${llmIntent ? 'invoke API' : 'no API'}`));
+    }
+  } else {
+    allowApinow = looksLikeApiIntent(userMessage);
+    vlog('router', 'heuristic intent (ROUTER_DISABLE_LLM_INTENT):', allowApinow);
+  }
+
+  if (!allowApinow) {
+    vlog('router', 'skip deterministic APINow routing');
     return null;
   }
 
