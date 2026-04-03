@@ -168,7 +168,7 @@ export async function chat(
   while (iterations++ < 15) {
     const t0 = Date.now();
     if (!onChunk) {
-      process.stdout.write(dim(`  [${iterations}/15] generating...`));
+      process.stdout.write(dim(`  [turn ${iterations}] generating...`));
     }
     vlog('model', `iteration ${iterations}, sending ${messages.length} messages`);
 
