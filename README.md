@@ -6,6 +6,20 @@
 
 <p align="center"><strong>Start building with local models</strong></p>
 
+## After install
+
+**Just run:**
+
+```bash
+npm start
+```
+
+That starts the chat REPL. First-time setup (Ollama, clone, dependencies, `.env`) is below if you have not done it yet.
+
+---
+
+## First-time setup
+
 Install Ollama (paste in terminal, or <a href="https://ollama.com">download Ollama</a>):
 
 ```bash
@@ -21,8 +35,9 @@ cd local-llm-memory-tools
 npm install
 cp .env.example .env
 # set PRIVATE_KEY (USDC on Base for APINow) — optional: OLLAMA_MODEL
-npm start
 ```
+
+Then **`npm start`** (see [After install](#after-install)).
 
 QMD (`@tobilu/qmd`) is installed by `npm install` and runs automatically — no global install needed.
 
