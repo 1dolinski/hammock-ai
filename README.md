@@ -31,9 +31,7 @@ ollama pull gemma4
 
 The app uses `OLLAMA_MODEL` from `.env` if set; otherwise it uses `gemma4` (matches `gemma4:latest` when that tag exists).
 
-**Alternative — heavier reasoning model:** the Opus-distilled Qwen3.5-27B build [`kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF`](https://ollama.com/kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF) (see [Why Qwen3.5-27B…](#why-qwen35-27b-claude-46-opus-reasoning-distilled) below). **Why not `hf.co/Jackrong/...-GGUF`?** Many people get **`unable to load model`** — use the library name above.
-
-**Smaller GPU:** `OLLAMA_MODEL=qwen3.5:9b` after `ollama pull qwen3.5:9b`, or another smaller Ollama model.
+**Tight on VRAM?** Pull a smaller tag or another model in Ollama, then set `OLLAMA_MODEL` to match.
 
 ### Benchmark (Gemma 4)
 
@@ -66,9 +64,11 @@ npm test
 
 Your hardware will differ; use the decode tok/s line as the apples-to-apples number.
 
-### 2. Install QMD
+### 2. QMD (bundled)
 
-[QMD](https://github.com/tobi/qmd) is a local document search engine with BM25 + vector hybrid search.
+[QMD](https://github.com/tobi/qmd) is a local document search engine with BM25 + vector hybrid search. This repo depends on **`@tobilu/qmd`** — `npm install` installs it under `node_modules`, and the app invokes the CLI from there (no global install required).
+
+Optional — `qmd` on your PATH for manual use outside this project:
 
 ```bash
 npm install -g @tobilu/qmd
@@ -113,53 +113,25 @@ npm start
 npm run start:verbose
 ```
 
-### Troubleshooting: `unable to load model` + blob `sha256-...`
+### Troubleshooting: `unable to load model`
 
-**If you pulled `hf.co/Jackrong/...-GGUF`:** the blob can be **full size (~9–10GB) and still not load** in Ollama. Switch to the library build or use the default **Gemma 4** model:
+Typical causes: **stale or incomplete blobs**, **old Ollama**, or **pull vs. runtime mismatch** (e.g. Docker vs. menu-bar app).
 
-```bash
-ollama pull gemma4
-# or the Qwen Opus-distilled build:
-ollama pull kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
-npm run benchmark
-```
+1. **Quit Ollama** completely (menu bar → Quit), start it again.
+2. **Upgrade Ollama** — e.g. `brew upgrade ollama` on macOS, or reinstall from [ollama.com](https://ollama.com).
+3. **Re-pull the model** — `ollama rm <name>` then `ollama pull <name>`. If the error includes a `sha256-…` blob hash, remove that file under `~/.ollama/models/blobs/` and pull again.
+4. **Same endpoint everywhere** — if you use `OLLAMA_HOST` or Docker, pull and run against the same daemon so blobs match.
+5. **VRAM / memory** — check Activity Monitor and `ollama ps` if loads fail or generation is unstable.
 
-**Otherwise:** truncated blob, old Ollama, or wrong daemon.
-
-1. **Quit Ollama** (menu bar → Quit), start it again.
-2. **Remove the broken model + blob**, then pull again (use the hash from your error):
-
-```bash
-ollama rm hf.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
-rm -f ~/.ollama/models/blobs/sha256-a15622267316636d22575f8ab25a61347eab59def966f257f572914812348c61
-ollama pull kwangsuklee/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
-```
-
-3. **Upgrade Ollama**: `brew upgrade ollama` (or reinstall from [ollama.com](https://ollama.com)).
-4. **Same daemon for pull and benchmark** — if you use Docker or a remote `OLLAMA_HOST`, blobs live elsewhere; pull where the API points.
-5. **Verify the blob size** — weights should be on the order of **~9–10GB**. If it’s tiny, it’s incomplete; delete it and re-pull.
-6. **Fallback**: `OLLAMA_MODEL=qwen3.5:9b npm run benchmark` after `ollama pull qwen3.5:9b`.
-
-`npm run benchmark` prints repair hints when it sees that 500 error.
+`npm run benchmark` prints extra recovery hints when the generate API returns a 500 with a load error.
 
 ---
 
-## Why Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled?
+## Why Gemma 4?
 
-This distilled Qwen3.5-27B model punches way above its weight class. By distilling Claude Opus's structural reasoning, it gains state-of-the-art Chain-of-Thought capabilities. It drastically outperforms the base model on stability and autonomy, specifically for tool calling — all while running locally at ~30 tok/s on consumer hardware (16.5GB VRAM).
+The default is **Gemma 4** in Ollama (`gemma4` → whatever tag you installed, often `gemma4:latest`). It is a solid local choice for chat, tool calling, and the background extractor while keeping data on your machine. Ollama may expose several sizes or variants — pick one that fits your GPU/RAM and use **`npm run benchmark`** on your box to compare decode speed.
 
-![Qwen 3.5 Benchmarks](docs/qwen-benchmarks.png)
-
-| Benchmark | Qwen3.5-9B | GPT-oss-120B | Qwen3-Next-80B | Gemini 2.5 Flash-Lite |
-|---|---|---|---|---|
-| **IFBench** (instruction following) | 64.5 | 69.0 | 65.1 | — |
-| **GPQA Diamond** (grad-level reasoning) | 81.7 | 77.2 | 80.1 | 71.5 |
-| **HMMT Feb 2025** (math tournament) | 83.2 | 73.7 | 90.0 | 76.7 |
-| **MMMLU** (multilingual knowledge) | 81.2 | 81.3 | 78.2 | 69.7 |
-| **MMMU-Pro** (visual reasoning) | 70.1 | 63.0 | 59.7 | — |
-| **ERQA** (embodied reasoning) | 55.5 | 45.8 | 44.3 | — |
-
-The 27B size is the sweet spot for local inference — fast enough for real-time chat with tool calling, smart enough to handle multi-step reasoning, parameter extraction, and fact extraction.
+Browse models and tags on [ollama.com](https://ollama.com).
 
 ## Architecture
 

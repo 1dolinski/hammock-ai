@@ -293,7 +293,7 @@ async function main() {
   rlAsk = (prompt: string): Promise<string> =>
     new Promise((resolve) => rl.question(prompt, resolve));
 
-  const ask = (): Promise<string> => rlAsk('you> ');
+  const ask = (): Promise<string> => rlAsk!('you> ');
 
   while (true) {
     const input = await ask();

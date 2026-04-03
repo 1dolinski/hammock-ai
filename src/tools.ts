@@ -1,6 +1,20 @@
 import type { Tool } from 'ollama';
 import { execSync } from 'child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AppState } from './memory.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Prefer project-local @tobilu/qmd CLI; fall back to `qmd` on PATH (global install). */
+function qmdShellPrefix(): string {
+  const cli = path.join(__dirname, '..', 'node_modules', '@tobilu', 'qmd', 'dist', 'cli', 'qmd.js');
+  if (fs.existsSync(cli)) {
+    return `${JSON.stringify(process.execPath)} ${JSON.stringify(cli)}`;
+  }
+  return 'qmd';
+}
 import {
   addTask,
   moveTask,
@@ -11,7 +25,15 @@ import {
 
 export function qmd(cmd: string, timeout = 30_000): string {
   try {
-    return execSync(`qmd ${cmd}`, { encoding: 'utf-8', timeout });
+    const shell =
+      process.platform === 'win32'
+        ? (process.env.ComSpec ?? 'cmd.exe')
+        : '/bin/sh';
+    return execSync(`${qmdShellPrefix()} ${cmd}`, {
+      encoding: 'utf-8',
+      timeout,
+      shell,
+    });
   } catch (err: any) {
     return JSON.stringify({ error: err.stderr || err.message });
   }
