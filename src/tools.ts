@@ -7,6 +7,24 @@ import type { AppState } from './memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Repo-root LLM wiki (committed). See AGENTS.md */
+export const WIKI_DIR = path.join(process.cwd(), 'wiki');
+/** Immutable raw sources (committed). See AGENTS.md */
+export const RAW_DIR = path.join(process.cwd(), 'raw');
+
+function resolveUnderRoot(root: string, relativePath: string): string {
+  const rel = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!rel || rel.includes('..')) {
+    throw new Error('Invalid path');
+  }
+  const resolved = path.resolve(root, rel);
+  const rootResolved = path.resolve(root);
+  if (resolved !== rootResolved && !resolved.startsWith(rootResolved + path.sep)) {
+    throw new Error('Path escapes allowed directory');
+  }
+  return resolved;
+}
+
 /** Prefer project-local @tobilu/qmd CLI; fall back to `qmd` on PATH (global install). */
 function qmdShellPrefix(): string {
   const cli = path.join(__dirname, '..', 'node_modules', '@tobilu', 'qmd', 'dist', 'cli', 'qmd.js');
@@ -453,6 +471,82 @@ export const tools: Tool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'wiki_read',
+      description:
+        'Read a file under the LLM wiki directory (wiki/). Path is relative to wiki/, e.g. "index.md" or "topics/foo.md". See AGENTS.md.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Relative path within wiki/',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wiki_write',
+      description:
+        'Create or overwrite a file under wiki/. Path is relative to wiki/. Creates parent directories as needed. After saving, re-indexes QMD. See AGENTS.md.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Relative path within wiki/',
+          },
+          content: {
+            type: 'string',
+            description: 'Full file content (markdown)',
+          },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'wiki_append_log',
+      description:
+        'Append a dated section to wiki/log.md (append-only activity log). Provide markdown body text; a ## [YYYY-MM-DD] heading is added automatically.',
+      parameters: {
+        type: 'object',
+        properties: {
+          markdown: {
+            type: 'string',
+            description: 'Body markdown for this log entry',
+          },
+        },
+        required: ['markdown'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'raw_read',
+      description:
+        'Read a file under raw/ (immutable sources). Path is relative to raw/. Read-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Relative path within raw/',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
   ...agentmailTools,
 ];
 
@@ -580,6 +674,54 @@ export async function handleToolCall(
           return JSON.stringify({ rows, count: rows.length });
         } catch (err: any) {
           return JSON.stringify({ error: err.message });
+        }
+      }
+      case 'wiki_read': {
+        try {
+          const full = resolveUnderRoot(WIKI_DIR, args.path as string);
+          if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
+            return JSON.stringify({ error: 'Not found or is a directory' });
+          }
+          const content = fs.readFileSync(full, 'utf-8');
+          return JSON.stringify({ path: args.path, content });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message || String(err) });
+        }
+      }
+      case 'wiki_write': {
+        try {
+          const full = resolveUnderRoot(WIKI_DIR, args.path as string);
+          fs.mkdirSync(path.dirname(full), { recursive: true });
+          fs.writeFileSync(full, args.content as string, 'utf-8');
+          qmd('update', 60_000);
+          return JSON.stringify({ ok: true, path: args.path, message: 'Written; QMD re-indexed' });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message || String(err) });
+        }
+      }
+      case 'wiki_append_log': {
+        try {
+          const body = String(args.markdown ?? '').trim();
+          const stamp = new Date().toISOString().slice(0, 10);
+          const block = `\n\n## [${stamp}]\n\n${body}\n`;
+          const logPath = path.join(WIKI_DIR, 'log.md');
+          fs.appendFileSync(logPath, block, 'utf-8');
+          qmd('update', 60_000);
+          return JSON.stringify({ ok: true, message: 'Appended to wiki/log.md; QMD re-indexed' });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message || String(err) });
+        }
+      }
+      case 'raw_read': {
+        try {
+          const full = resolveUnderRoot(RAW_DIR, args.path as string);
+          if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
+            return JSON.stringify({ error: 'Not found or is a directory' });
+          }
+          const content = fs.readFileSync(full, 'utf-8');
+          return JSON.stringify({ path: args.path, content });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message || String(err) });
         }
       }
       default: {

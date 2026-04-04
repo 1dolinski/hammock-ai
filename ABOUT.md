@@ -159,6 +159,10 @@ Background model calls extract facts and preferences from each turn; deduplicate
 - Auto-indexing of conversations, memories, tasks under `data/`  
 - Embeddings and collection context for better retrieval  
 
+### LLM Wiki (`wiki/`, `raw/`)
+
+Committed markdown at the repo root: **raw/** holds immutable sources you add; **wiki/** is the LLM-maintained layer (summaries, entities, [`wiki/index.md`](wiki/index.md), [`wiki/log.md`](wiki/log.md)). On startup, QMD registers collections **llm-wiki** and **raw-sources** alongside **chat-memory**. The model uses **wiki_read**, **wiki_write**, **wiki_append_log**, and **raw_read** (see [`AGENTS.md`](AGENTS.md)). Pattern: [Karpathy — LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
+
 ### APINow — x402
 
 - Natural-language API discovery  

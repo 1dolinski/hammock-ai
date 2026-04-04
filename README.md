@@ -47,6 +47,8 @@ QMD (`@tobilu/qmd`) is installed by `npm install` and runs automatically — no 
 
 **Use:** `npm start` · `/tasks` `/memory` `/qmd` `/clear` · `quit` · `npm run start:verbose`
 
+**LLM Wiki:** [AGENTS.md](AGENTS.md) is the schema; committed [`wiki/`](wiki/) (compiled notes) and [`raw/`](raw/) (immutable sources) are QMD collections `llm-wiki` and `raw-sources`. Tools: `wiki_read`, `wiki_write`, `wiki_append_log`, `raw_read`. Idea: [Karpathy gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
+
 **More:** [ABOUT.md](ABOUT.md)
 
 ---

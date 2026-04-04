@@ -1,5 +1,6 @@
 import ollama from 'ollama';
 import * as readline from 'readline';
+import fs from 'node:fs';
 import { config } from 'dotenv';
 import { createClient } from 'apinow-sdk';
 import {
@@ -10,7 +11,7 @@ import {
   pushHistory,
   DATA_DIR,
 } from './memory.js';
-import { tools, handleToolCall, qmd } from './tools.js';
+import { tools, handleToolCall, qmd, WIKI_DIR, RAW_DIR } from './tools.js';
 import { tryRoute } from './router.js';
 import { setVerbose, vlog } from './log.js';
 import { extractFactsInBackground, waitForExtractor, bootstrapMemories } from './extractor.js';
@@ -85,6 +86,14 @@ You manage the user's local knowledge base via QMD:
 4. Retrieve: qmd_get with file path or docid from search results
 5. When user mentions new docs/dirs: proactively offer to index them
 6. Run qmd_update when user mentions changed files
+7. Collections include chat-memory (data/), llm-wiki (wiki/), raw-sources (raw/) — use -c llm-wiki or -c raw-sources to scope search
+
+## LLM Wiki (wiki/ and raw/)
+Persistent markdown wiki between raw sources and answers. Schema: AGENTS.md in repo root.
+- raw/: immutable sources — use raw_read only
+- wiki/: your layer — wiki_read, wiki_write, wiki_append_log; update wiki/index.md when pages change; log activity in wiki/log.md
+- Ingest: read raw → integrate into wiki pages → index + log
+- After wiki_write or wiki_append_log, QMD re-indexes automatically
 
 ## Cron Jobs
 You can schedule recurring tasks with add_cron. Use list_crons to see scheduled jobs.
@@ -243,7 +252,12 @@ export async function chat(
 
         messages.push({ role: 'tool', content: result });
 
-        if (fnName.startsWith('qmd_collection') || fnName === 'qmd_embed' || fnName === 'qmd_update') {
+        if (
+          fnName.startsWith('qmd_collection') ||
+          fnName === 'qmd_embed' ||
+          fnName === 'qmd_update' ||
+          fnName.startsWith('wiki_')
+        ) {
           refreshQmdStatus();
         }
       }
@@ -303,10 +317,23 @@ async function main() {
 
   // --- QMD ---
   process.stdout.write(dim('  setting up qmd...'));
+  for (const d of [WIKI_DIR, RAW_DIR]) {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  }
   const collectionList = qmd('collection list');
   if (!collectionList.includes('chat-memory')) {
     qmd(`collection add ${JSON.stringify(DATA_DIR)} --name chat-memory`);
     qmd('context add qmd://chat-memory "Chat conversations, saved memories, and task lists"');
+  }
+  if (!collectionList.includes('llm-wiki')) {
+    qmd(`collection add ${JSON.stringify(WIKI_DIR)} --name llm-wiki`);
+    qmd(
+      'context add qmd://llm-wiki "LLM-maintained wiki: summaries, entities, index.md, log.md"'
+    );
+  }
+  if (!collectionList.includes('raw-sources')) {
+    qmd(`collection add ${JSON.stringify(RAW_DIR)} --name raw-sources`);
+    qmd('context add qmd://raw-sources "Immutable raw sources for ingest"');
   }
   qmd('update', 15_000);
   refreshQmdStatus();
@@ -319,7 +346,7 @@ async function main() {
   console.log(cyan('  Hammock AI  |  ollama + apinow + qmd'));
   console.log(dim(`  model: ${MODEL}`));
   console.log(dim(`  wallet: ${apinow.wallet}`));
-  console.log(dim(`  qmd: chat-memory (${docCount} docs)`));
+  console.log(dim(`  qmd: chat-memory (${docCount} docs) · llm-wiki · raw-sources`));
   if (process.env.AGENTMAIL_API_KEY) {
     console.log(dim('  agentmail: enabled (set AGENTMAIL_INBOX_ID to default inbox)'));
   }
