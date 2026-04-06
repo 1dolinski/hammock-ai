@@ -234,7 +234,7 @@ export const tools: Tool[] = [
     function: {
       name: 'qmd_query',
       description:
-        'Hybrid deep search using QMD: BM25 + vector search + query expansion + LLM reranking. Best quality, slower.',
+        'Hybrid deep search using QMD: BM25 + vector search + query expansion + LLM reranking. Best quality, slower. Use no_rerank=true for faster results without GPU reranking.',
       parameters: {
         type: 'object',
         properties: {
@@ -250,6 +250,10 @@ export const tools: Tool[] = [
           min_score: {
             type: 'number',
             description: 'Minimum relevance score 0-1 (default 0)',
+          },
+          no_rerank: {
+            type: 'boolean',
+            description: 'Skip LLM reranking for faster results (default false)',
           },
         },
         required: ['query'],
@@ -340,13 +344,18 @@ export const tools: Tool[] = [
     function: {
       name: 'qmd_embed',
       description:
-        'Generate vector embeddings for all indexed QMD documents. Required after adding/updating collections to enable semantic search (qmd_query). Downloads models on first run (~2GB).',
+        'Generate vector embeddings for all indexed QMD documents. Required after adding/updating collections to enable semantic search (qmd_query). Downloads models on first run (~2GB). Use chunk_strategy "auto" for AST-aware code splitting (TS/JS, Python, Go, Rust).',
       parameters: {
         type: 'object',
         properties: {
           force: {
             type: 'boolean',
             description: 'Force re-embed everything (default false)',
+          },
+          chunk_strategy: {
+            type: 'string',
+            enum: ['auto', 'regex'],
+            description: 'Chunking strategy: "auto" uses AST for code files (function/class boundaries), "regex" for text splitting (default "regex")',
           },
         },
       },
@@ -614,7 +623,8 @@ export async function handleToolCall(
         const n = args.num_results || 5;
         const col = args.collection ? ` -c ${args.collection}` : '';
         const ms = args.min_score ? ` --min-score ${args.min_score}` : '';
-        return qmd(`query --json -n ${n}${col}${ms} ${JSON.stringify(args.query)}`);
+        const nr = args.no_rerank ? ' --no-rerank' : '';
+        return qmd(`query --json -n ${n}${col}${ms}${nr} ${JSON.stringify(args.query)}`);
       }
       case 'qmd_get': {
         const full = args.full !== false ? ' --full' : '';
@@ -635,7 +645,8 @@ export async function handleToolCall(
       }
       case 'qmd_embed': {
         const force = args.force ? ' -f' : '';
-        return qmd(`embed${force}`, 300_000);
+        const cs = args.chunk_strategy ? ` --chunk-strategy ${args.chunk_strategy}` : '';
+        return qmd(`embed${force}${cs}`, 300_000);
       }
       case 'qmd_update': {
         return qmd('update', 60_000);
